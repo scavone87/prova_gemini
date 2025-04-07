@@ -1,17 +1,20 @@
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # Questo è l'oggetto Alembic, usato per le operazioni di migrazione
 config = context.config
 
 # Imposta la stringa di connessione dalle variabili di ambiente
 # se disponibili, altrimenti usa quella presente in alembic.ini
-if os.environ.get('DB_USER') and os.environ.get('DB_PASSWORD') and os.environ.get('DB_HOST') and os.environ.get('DB_NAME'):
+if (
+    os.environ.get("DB_USER")
+    and os.environ.get("DB_PASSWORD")
+    and os.environ.get("DB_HOST")
+    and os.environ.get("DB_NAME")
+):
     db_url = f"postgresql://{os.environ['DB_USER']}:{os.environ['DB_PASSWORD']}@{os.environ['DB_HOST']}/{os.environ['DB_NAME']}"
     config.set_main_option("sqlalchemy.url", db_url)
 
@@ -23,10 +26,12 @@ fileConfig(config.config_file_name)
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 from db.models import Base
+
 target_metadata = Base.metadata
 
 # Altri valori includono 'postgresql+psycopg2', 'postgresql+pg8000', 'mysql+mysqlconnector', 'sqlite+pysqlite'
-dialect = 'postgresql'
+dialect = "postgresql"
+
 
 def run_migrations_offline():
     """Run migrations in 'offline' mode.
@@ -67,7 +72,7 @@ def run_migrations_online():
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, 
+            connection=connection,
             target_metadata=target_metadata,
             compare_type=True,  # Rileva cambiamenti nei tipi di colonne
             compare_server_default=True,  # Rileva cambiamenti nei valori di default
