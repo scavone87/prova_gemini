@@ -1,10 +1,8 @@
 import json
 
-import pandas as pd
 import streamlit as st
 
 from db import step_operations, ui_operations
-from utils.db_utils import get_db_session
 
 # Configurazione della pagina
 st.title("Configurazione UI per Step")
@@ -338,39 +336,9 @@ with col1:
 
 with col2:
     # Tabs per organizzare le diverse sezioni di configurazione
-    tab1, tab2, tab3, tab4 = st.tabs(["Layout", "Sezioni", "Componenti", "Stile"])
+    tab1, tab2 = st.tabs(["Sezioni", "Componenti"])
 
     with tab1:
-        st.subheader("Configurazione Layout")
-
-        # Verifica se è stato selezionato uno step
-        if st.session_state.current_step_id:
-            # Opzioni di layout in un form
-            with st.form("layout_form"):
-                st.selectbox(
-                    "Tipo di layout:",
-                    options=[
-                        "Singola colonna",
-                        "Due colonne",
-                        "Tre colonne",
-                        "Sidebar",
-                    ],
-                    key="ui_layout_type",
-                )
-
-                st.slider(
-                    "Larghezza contenuto (%)", 30, 100, 70, key="ui_content_width"
-                )
-
-                st.checkbox("Mostra header", value=True, key="ui_show_header")
-
-                st.checkbox("Mostra footer", value=True, key="ui_show_footer")
-
-                st.form_submit_button("Applica Layout")
-        else:
-            st.info("Seleziona uno step per configurare il layout.")
-
-    with tab2:
         st.subheader("Gestione Sezioni")
 
         if st.session_state.current_step_id:
@@ -467,7 +435,7 @@ with col2:
         else:
             st.info("Seleziona uno step per gestire le sezioni.")
 
-    with tab3:
+    with tab2:
         st.subheader("Gestione Componenti")
 
         # Verifica se è stata selezionata una sezione
@@ -537,43 +505,105 @@ with col2:
                         st.write(f"**{component['component_type']}**")
                         st.caption(f"Ordine: {component['order']}")
 
-                        # Visualizza la struttura JSON del componente se disponibile
-                        if component["structure"]:
-                            with st.expander("Struttura JSON"):
-                                # Crea una chiave univoca per l'editor JSON
-                                json_key = f"json_{component['component_section_id']}"
+                        # Visualizza e modifica la struttura JSON del componente
+                        with st.expander("Definizione Structure JSON", expanded=True):
+                            st.info(
+                                "La structure definisce la configurazione del componente Angular. "
+                                "Ogni tipo di componente richiede una struttura JSON specifica."
+                            )
 
-                                # Inizializza la chiave di sessione se non esiste
-                                if json_key not in st.session_state:
-                                    st.session_state[json_key] = json.dumps(
-                                        component["structure"], indent=2
+                            # Mostra un esempio di struttura in base al tipo di componente
+                            component_type = component["component_type"]
+                            example = {}
+
+                            if component_type == "button":
+                                example = {
+                                    "text": "Pulsante di esempio",
+                                    "action": "submit",
+                                    "style": {
+                                        "color": "primary",
+                                        "size": "medium"
+                                    }
+                                }
+                            elif component_type == "text":
+                                example = {
+                                    "content": "Testo di esempio",
+                                    "markdown": True,
+                                    "style": {
+                                        "fontSize": "16px",
+                                        "color": "#333333"
+                                    }
+                                }
+                            elif component_type == "image":
+                                example = {
+                                    "url": "https://example.com/image.jpg",
+                                    "alt": "Descrizione immagine",
+                                    "style": {
+                                        "width": "100%",
+                                        "borderRadius": "4px"
+                                    }
+                                }
+                            elif component_type == "form":
+                                example = {
+                                    "fields": [
+                                        {
+                                            "name": "email",
+                                            "type": "email",
+                                            "label": "Indirizzo email",
+                                            "required": True
+                                        },
+                                        {
+                                            "name": "name",
+                                            "type": "text",
+                                            "label": "Nome completo"
+                                        }
+                                    ],
+                                    "submitButton": {
+                                        "text": "Invia",
+                                        "style": {
+                                            "color": "primary"
+                                        }
+                                    }
+                                }
+
+                            # Mostra l'esempio
+                            st.write("**Esempio di structure per questo componente:**")
+                            st.json(example)
+
+                            # Crea una chiave univoca per l'editor JSON
+                            json_key = f"json_{component['component_section_id']}"
+
+                            # Inizializza la chiave di sessione se non esiste
+                            if json_key not in st.session_state:
+                                current_structure = component["structure"] if component["structure"] else {}
+                                st.session_state[json_key] = json.dumps(current_structure, indent=2)
+
+                            # Editor JSON
+                            st.write("**Definisci la structure JSON:**")
+                            json_str = st.text_area(
+                                "",
+                                value=st.session_state[json_key],
+                                height=250,
+                                key=f"json_edit_{component['component_section_id']}",
+                            )
+
+                            # Aggiorna il valore nella sessione
+                            st.session_state[json_key] = json_str
+
+                            # Pulsante per salvare le modifiche alla struttura
+                            if st.button(
+                                "Salva struttura",
+                                key=f"save_json_{component['component_section_id']}",
+                            ):
+                                try:
+                                    json_data = json.loads(json_str)
+                                    update_structure_data(
+                                        component["structure_id"], json_data
                                     )
-
-                                # Editor JSON
-                                json_str = st.text_area(
-                                    "Modifica struttura JSON:",
-                                    value=st.session_state[json_key],
-                                    height=150,
-                                    key=f"json_edit_{component['component_section_id']}",
-                                )
-
-                                # Aggiorna il valore nella sessione
-                                st.session_state[json_key] = json_str
-
-                                # Pulsante per salvare le modifiche alla struttura
-                                if st.button(
-                                    "Salva struttura",
-                                    key=f"save_json_{component['component_section_id']}",
-                                ):
-                                    try:
-                                        json_data = json.loads(json_str)
-                                        update_structure_data(
-                                            component["structure_id"], json_data
-                                        )
-                                    except json.JSONDecodeError:
-                                        st.error(
-                                            "JSON non valido. Controlla la sintassi."
-                                        )
+                                except json.JSONDecodeError:
+                                    st.error(
+                                        "JSON non valido. Controlla la sintassi."
+                                    )
 
                         # Configurazione delle chiavi CMS
                         with st.expander("Configurazione CMS"):
@@ -666,35 +696,7 @@ with col2:
                 "Seleziona prima una sezione dalla tab 'Sezioni' per gestire i componenti."
             )
 
-    with tab4:
-        st.subheader("Stile e Tema")
-
-        if st.session_state.current_step_id:
-            # Configurazione dei colori
-            st.color_picker("Colore primario:", "#FF4B4B", key="ui_primary_color")
-            st.color_picker("Colore secondario:", "#0068C9", key="ui_secondary_color")
-            st.color_picker("Colore background:", "#FFFFFF", key="ui_bg_color")
-
-            # Configurazione dei font
-            st.selectbox(
-                "Font primario:",
-                options=[
-                    "System default",
-                    "Arial",
-                    "Roboto",
-                    "Montserrat",
-                    "Open Sans",
-                ],
-                key="ui_primary_font",
-            )
-
-            # Configurazione delle spaziature
-            st.slider("Padding (px)", 0, 50, 20, key="ui_padding")
-
-            # Pulsante per applicare lo stile
-            st.button("Applica stile", type="primary", key="apply_style")
-        else:
-            st.info("Seleziona uno step per configurare lo stile.")
+    # Fine della sezione componenti
 
 # Anteprima dell'interfaccia
 st.subheader("Anteprima")
@@ -747,6 +749,12 @@ with st.expander("Mostra anteprima", expanded=True):
     st.caption(
         "Nota: questa è una visualizzazione semplificata dell'interfaccia. Nel frontend reale, i componenti saranno renderizzati correttamente in base alla loro configurazione."
     )
+
+# Nota informativa finale
+st.info(
+    "Le configurazioni definite qui (structure e CMS) verranno utilizzate dal frontend Angular "
+    "per renderizzare i componenti in base al loro tipo. Ogni component-type corrisponde a un componente Angular specifico."
+)
 
 # Link di navigazione a fine pagina
 st.divider()

@@ -194,13 +194,12 @@ def get_funnel_stats(funnel_id: Optional[int] = None):
                 """
                 )
 
-                funnel_data = (
-                    optimize_query_execution(
-                        session, funnel_query, f"dettagli funnel {funnel_id}"
-                    )
-                    .bindparams(funnel_id=int(funnel_id))
-                    .fetchone()
-                )
+                # Esegui la query con i parametri corretti
+                funnel_data = optimize_query_execution(
+                    session,
+                    funnel_query.bindparams(funnel_id=int(funnel_id)),
+                    f"dettagli funnel {funnel_id}"
+                ).fetchone()
 
                 if not funnel_data:
                     return {
@@ -231,9 +230,9 @@ def get_funnel_stats(funnel_id: Optional[int] = None):
                 # Query per recuperare le route del funnel
                 routes_query = text(
                     """
-                    SELECT 
-                        r.id, 
-                        fs.step_url as from_step_url, 
+                    SELECT
+                        r.id,
+                        fs.step_url as from_step_url,
                         ns.step_url as to_step_url,
                         fs.id as from_step_id,
                         ns.id as to_step_id
@@ -316,9 +315,9 @@ def get_funnel_stats(funnel_id: Optional[int] = None):
                 # Top 5 funnel per numero di step
                 top_funnels_query = text(
                     """
-                    SELECT 
-                        f.id, 
-                        f.name, 
+                    SELECT
+                        f.id,
+                        f.name,
                         p.title_prod as product_name,
                         COUNT(DISTINCT s.id) as step_count
                     FROM funnel_manager.funnel f
@@ -339,11 +338,11 @@ def get_funnel_stats(funnel_id: Optional[int] = None):
                 # Distribuzioni dei funnel per numero di step
                 funnel_distribution_query = text(
                     """
-                    SELECT 
+                    SELECT
                         step_count,
                         COUNT(*) as funnel_count
                     FROM (
-                        SELECT 
+                        SELECT
                             f.id,
                             COUNT(DISTINCT s.id) as step_count
                         FROM funnel_manager.funnel f
@@ -366,7 +365,7 @@ def get_funnel_stats(funnel_id: Optional[int] = None):
                 # Distribuzioni dei funnel per prodotto
                 product_distribution_query = text(
                     """
-                    SELECT 
+                    SELECT
                         p.title_prod,
                         COUNT(f.id) as funnel_count
                     FROM funnel_manager.funnel f

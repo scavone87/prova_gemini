@@ -15,6 +15,7 @@ from db.models import (
     StructureComponentSection,
 )
 from utils.db_utils import close_db_session, get_db_session
+from utils.db_transaction import standardized_db_operation, log_db_operation, with_retry
 
 # Configurazione del logging
 logger = logging.getLogger(__name__)
@@ -386,11 +387,13 @@ def delete_step_section(step_section_id):
 
 
 # Operazioni per l'associazione di componenti a sezioni
-def add_component_to_section(section_id, component_id, order):
+@standardized_db_operation("aggiunta componente a sezione")
+def add_component_to_section(session, section_id, component_id, order):
     """
     Associa un componente a una sezione
 
     Args:
+        session: Sessione del database (iniettata dal decoratore)
         section_id (int): ID della sezione
         component_id (int): ID del componente
         order (int): Ordine del componente nella sezione
@@ -398,70 +401,64 @@ def add_component_to_section(section_id, component_id, order):
     Returns:
         dict: Dizionario con il risultato dell'operazione
     """
-    session = get_db_session()
-    try:
-        # Verifica se esiste già un'associazione tra il componente e la sezione
-        existing_association = (
-            session.query(ComponentSection)
-            .filter(
-                ComponentSection.sectionid == section_id,
-                ComponentSection.componentid == component_id,
-            )
-            .first()
+    # Log dell'operazione
+    log_db_operation("insert", {
+        "entity": "component_section",
+        "section_id": section_id,
+        "component_id": component_id,
+        "order": order
+    })
+
+    # Verifica se esiste già un'associazione tra il componente e la sezione
+    existing_association = (
+        session.query(ComponentSection)
+        .filter(
+            ComponentSection.sectionid == section_id,
+            ComponentSection.componentid == component_id,
         )
+        .first()
+    )
 
-        if existing_association:
-            return {
-                "error": True,
-                "message": "Questo componente è già associato a questa sezione",
-                "component_section": {
-                    "id": existing_association.id,
-                    "order": existing_association.order,
-                },
-            }
-
-        # Crea una nuova associazione
-        new_association = ComponentSection(
-            sectionid=section_id, componentid=component_id, order=order
-        )
-        session.add(new_association)
-        session.commit()
-
-        # Crea anche una struttura vuota per questo componente-sezione
-        structure = Structure(data={})
-        session.add(structure)
-        session.flush()  # Flush per ottenere l'ID della struttura
-
-        # Associa la struttura al componente-sezione
-        structure_component_section = StructureComponentSection(
-            structureid=structure.id, componentsectionid=new_association.id
-        )
-        session.add(structure_component_section)
-        session.commit()
-
+    if existing_association:
         return {
-            "error": False,
-            "message": "Componente associato alla sezione con successo",
+            "error": True,
+            "message": "Questo componente è già associato a questa sezione",
             "component_section": {
-                "id": new_association.id,
-                "order": new_association.order,
-                "structure_id": structure.id,
-                "structure_component_section_id": structure_component_section.id,
+                "id": existing_association.id,
+                "order": existing_association.order,
             },
         }
 
-    except SQLAlchemyError as e:
-        session.rollback()
-        error_message = str(e)
-        logger.error(
-            f"Errore nell'associazione del componente alla sezione: {error_message}"
-        )
-        return {
-            "error": True,
-            "message": f"Errore nell'associazione del componente alla sezione: {error_message}",
-        }
-    finally:
-        session.close()
+    # Crea una nuova associazione
+    new_association = ComponentSection(
+        sectionid=section_id, componentid=component_id, order=order
+    )
+    session.add(new_association)
+    session.flush()  # Flush per ottenere l'ID senza commit
+
+    # Crea anche una struttura vuota per questo componente-sezione
+    structure = Structure(data={})
+    session.add(structure)
+    session.flush()  # Flush per ottenere l'ID della struttura
+
+    # Associa la struttura al componente-sezione
+    structure_component_section = StructureComponentSection(
+        structureid=structure.id, component_sectionid=new_association.id, order=1
+    )
+    session.add(structure_component_section)
+
+    # Il commit verrà eseguito dal decoratore
+
+    return {
+        "error": False,
+        "message": "Componente associato alla sezione con successo",
+        "component_section": {
+            "id": new_association.id,
+            "order": new_association.order,
+            "structure_id": structure.id,
+            "structure_component_section_id": structure_component_section.id,
+        },
+    }
 
 
 def get_components_for_section(section_id):
@@ -474,8 +471,16 @@ def get_components_for_section(section_id):
     Returns:
         list: Lista di componenti associati alla sezione in formato dizionario
     """
-    session = get_db_session()
-    try:
+    # Funzione interna che esegue l'operazione con una sessione
+    @standardized_db_operation("recupero componenti per sezione")
+    def _get_components_for_section(session, section_id):
+        # Log dell'operazione
+        log_db_operation("select", {
+            "entity": "component_section",
+            "section_id": section_id
+        })
+
+        # Query ottimizzata con join
         query = (
             session.query(
                 ComponentSection, Component, Structure, StructureComponentSection
@@ -487,6 +492,7 @@ def get_components_for_section(section_id):
             )
             .outerjoin(Structure, StructureComponentSection.structureid == Structure.id)
             .filter(ComponentSection.sectionid == section_id)
+            .order_by(ComponentSection.order)  # Ordina i risultati per l'ordine dei componenti
         )
 
         results = query.all()
@@ -498,6 +504,13 @@ def get_components_for_section(section_id):
             structure,
             structure_component_section,
         ) in results:
+            # Recupera la chiave CMS associata, se presente
+            cms_key = None
+            if structure_component_section:
+                cms_key = session.query(CmsKey).filter(
+                    CmsKey.structurecomponentsectionid == structure_component_section.id
+                ).first()
+
             component_data = {
                 "id": component.id,
                 "component_type": component.component_type,
@@ -510,19 +523,15 @@ def get_components_for_section(section_id):
                     if structure_component_section
                     else None
                 ),
+                "cms_key": cms_key.value if cms_key else None,
+                "cms_key_id": cms_key.id if cms_key else None
             }
             components.append(component_data)
 
         return components
 
-    except SQLAlchemyError as e:
-        error_message = str(e)
-        logger.error(
-            f"Errore nel recupero dei componenti per la sezione: {error_message}"
-        )
-        return []
-    finally:
-        session.close()
+    # Chiama la funzione interna
+    return _get_components_for_section(section_id)
 
 
 def update_component_section_order(component_section_id, new_order):
@@ -662,15 +671,22 @@ def update_structure_data(structure_id, new_data):
     Returns:
         dict: Dizionario con il risultato dell'operazione
     """
-    session = get_db_session()
-    try:
+    # Funzione interna che esegue l'operazione con una sessione
+    @standardized_db_operation("aggiornamento dati struttura")
+    def _update_structure_data(session, structure_id, new_data):
+        # Log dell'operazione
+        log_db_operation("update", {
+            "entity": "structure",
+            "structure_id": structure_id
+        })
+
         structure = session.query(Structure).get(structure_id)
 
         if not structure:
             return {"error": True, "message": "Struttura non trovata"}
 
         structure.data = new_data
-        session.commit()
+        # Il commit verrà eseguito dal decoratore
 
         return {
             "error": False,
@@ -678,18 +694,8 @@ def update_structure_data(structure_id, new_data):
             "structure": {"id": structure.id, "data": structure.data},
         }
 
-    except SQLAlchemyError as e:
-        session.rollback()
-        error_message = str(e)
-        logger.error(
-            f"Errore nell'aggiornamento dei dati della struttura: {error_message}"
-        )
-        return {
-            "error": True,
-            "message": f"Errore nell'aggiornamento dei dati della struttura: {error_message}",
-        }
-    finally:
-        session.close()
+    # Chiama la funzione interna
+    return _update_structure_data(structure_id, new_data)
 
 
 # Operazioni per le chiavi CMS
@@ -704,8 +710,15 @@ def create_or_update_cms_key(structure_component_section_id, cms_data):
     Returns:
         dict: Dizionario con il risultato dell'operazione
     """
-    session = get_db_session()
-    try:
+    # Funzione interna che esegue l'operazione con una sessione
+    @standardized_db_operation("creazione/aggiornamento chiave CMS")
+    def _create_or_update_cms_key(session, structure_component_section_id, cms_data):
+        # Log dell'operazione
+        log_db_operation("upsert", {
+            "entity": "cms_key",
+            "structure_component_section_id": structure_component_section_id
+        })
+
         # Verifica se esiste già una chiave CMS per questa associazione
         cms_key = (
             session.query(CmsKey)
@@ -718,7 +731,6 @@ def create_or_update_cms_key(structure_component_section_id, cms_data):
         if cms_key:
             # Aggiorna la chiave esistente
             cms_key.value = cms_data
-            session.commit()
 
             return {
                 "error": False,
@@ -732,7 +744,7 @@ def create_or_update_cms_key(structure_component_section_id, cms_data):
                 value=cms_data,
             )
             session.add(new_cms_key)
-            session.commit()
+            session.flush()  # Flush per ottenere l'ID senza commit
 
             return {
                 "error": False,
@@ -740,18 +752,8 @@ def create_or_update_cms_key(structure_component_section_id, cms_data):
                 "cms_key": {"id": new_cms_key.id, "value": new_cms_key.value},
             }
 
-    except SQLAlchemyError as e:
-        session.rollback()
-        error_message = str(e)
-        logger.error(
-            f"Errore nella creazione/aggiornamento della chiave CMS: {error_message}"
-        )
-        return {
-            "error": True,
-            "message": f"Errore nella creazione/aggiornamento della chiave CMS: {error_message}",
-        }
-    finally:
-        session.close()
+    # Chiama la funzione interna
+    return _create_or_update_cms_key(structure_component_section_id, cms_data)
 
 
 def get_cms_key_for_structure(structure_component_section_id):
@@ -764,8 +766,15 @@ def get_cms_key_for_structure(structure_component_section_id):
     Returns:
         dict: Dizionario con i dati della chiave CMS o None
     """
-    session = get_db_session()
-    try:
+    # Funzione interna che esegue l'operazione con una sessione
+    @standardized_db_operation("recupero chiave CMS")
+    def _get_cms_key_for_structure(session, structure_component_section_id):
+        # Log dell'operazione
+        log_db_operation("select", {
+            "entity": "cms_key",
+            "structure_component_section_id": structure_component_section_id
+        })
+
         cms_key = (
             session.query(CmsKey)
             .filter(
@@ -783,9 +792,5 @@ def get_cms_key_for_structure(structure_component_section_id):
         else:
             return None
 
-    except SQLAlchemyError as e:
-        error_message = str(e)
-        logger.error(f"Errore nel recupero della chiave CMS: {error_message}")
-        return None
-    finally:
-        session.close()
+    # Chiama la funzione interna
+    return _get_cms_key_for_structure(structure_component_section_id)

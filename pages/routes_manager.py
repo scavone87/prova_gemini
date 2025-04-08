@@ -1,6 +1,5 @@
 import json
 
-import pandas as pd
 import streamlit as st
 
 from db.route_operations import create_route, delete_route, get_routes_for_workflow
@@ -71,8 +70,8 @@ def handle_route_creation():
         }
         # Invalida la cache delle route
         st.session_state.invalidate_route_cache = True
-        # Resetta i campi del form
-        st.session_state.route_config = ""
+        # Imposta un flag per resettare il form al prossimo caricamento
+        st.session_state.reset_route_form = True
         # Ricarica la pagina
         st.rerun()
     else:
@@ -152,6 +151,13 @@ if (
     cached_get_routes_for_workflow.clear()
     st.session_state.invalidate_route_cache = False
 
+# Gestione del reset del form
+if "reset_route_form" in st.session_state and st.session_state.reset_route_form:
+    # Resetta i campi del form
+    if "route_config" in st.session_state:
+        del st.session_state["route_config"]
+    st.session_state.reset_route_form = False
+
 # Layout a colonne per una migliore organizzazione
 col1, col2 = st.columns([2, 3])
 
@@ -230,13 +236,13 @@ with col1:
         st.markdown(
             """
         ### Come creare un collegamento (route):
-        
+
         1. **Da Step**: Seleziona lo step di partenza (o "Step iniziale" per l'ingresso nel funnel)
         2. **A Step**: Seleziona lo step di destinazione (obbligatorio)
         3. **Configurazione**: Aggiungi una configurazione JSON opzionale per la route
-        
+
         **Le route definiscono il percorso che l'utente può seguire nel funnel.**
-        
+
         Per creare un funnel completo:
         - Inizia con una route dallo step iniziale al primo step
         - Collega tutti gli step in sequenza
