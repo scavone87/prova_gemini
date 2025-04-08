@@ -57,11 +57,11 @@ def load_available_funnels():
     try:
         query = text(
             """
-            SELECT 
-                f.id, 
-                f.name, 
+            SELECT
+                f.id,
+                f.name,
                 f.workflow_id,
-                p.id as product_id, 
+                p.id as product_id,
                 p.title_prod as product_name
             FROM funnel_manager.funnel f
             JOIN product.products p ON f.product_id = p.id
@@ -198,6 +198,14 @@ with tab2:
                 workflow_info = import_data.get("workflow", {})
                 steps = import_data.get("steps", [])
                 routes = import_data.get("routes", [])
+                design_data = import_data.get("design", {})
+
+                # Verifica se ci sono dati di design
+                has_design = bool(design_data)
+                sections = design_data.get("sections", [])
+                components = design_data.get("components", [])
+                structures = design_data.get("structures", [])
+                cms_keys = design_data.get("cms_keys", [])
 
                 st.write(f"**Funnel:** {funnel_info.get('name', 'N/A')}")
                 st.write(
@@ -206,6 +214,14 @@ with tab2:
                 st.write(f"**Workflow:** {workflow_info.get('description', 'N/A')}")
                 st.write(f"**Numero di step:** {len(steps)}")
                 st.write(f"**Numero di route:** {len(routes)}")
+
+                if has_design:
+                    st.write("---")
+                    st.write("**Dati di design inclusi:**")
+                    st.write(f"- Sezioni: {len(sections)}")
+                    st.write(f"- Componenti: {len(components)}")
+                    st.write(f"- Strutture: {len(structures)}")
+                    st.write(f"- Chiavi CMS: {len(cms_keys)}")
 
                 # Mostra tabella degli step
                 if steps:
@@ -226,9 +242,17 @@ with tab2:
             st.subheader("Opzioni di importazione")
             update_existing = st.checkbox(
                 "Aggiorna funnel esistente",
-                value=False,
-                help="Se attivato e un funnel per lo stesso prodotto esiste già, lo aggiornerà invece di segnalare un errore",
+                value=True,
+                help="Se attivato e un funnel per lo stesso prodotto esiste già, lo aggiornerà invece di crearne uno nuovo",
             )
+
+            st.info("L'aggiornamento di un funnel esistente è consigliato quando si importa un funnel che è stato precedentemente esportato e modificato. Questo garantisce che vengano aggiornati solo i dati modificati, mantenendo le relazioni esistenti.")
+
+            # Mostra opzioni aggiuntive solo se ci sono dati di design
+            if has_design:
+                st.write("")
+                st.write("**Opzioni per i dati di design:**")
+                st.info("I dati di design includono sezioni, componenti, strutture e chiavi CMS che definiscono l'aspetto e il comportamento dell'interfaccia utente del funnel.")
 
             # Pulsante di importazione
             if st.button("📥 Importa Funnel"):
@@ -247,6 +271,16 @@ with tab2:
                         st.write(
                             f"Route importate: {import_result.get('routes_imported')}"
                         )
+
+                        # Mostra informazioni sui dati di design importati se presenti
+                        design_imported = import_result.get("design_imported")
+                        if design_imported:
+                            st.write("---")
+                            st.write("**Dati di design importati:**")
+                            st.write(f"- Sezioni: {design_imported.get('sections', 0)}")
+                            st.write(f"- Componenti: {design_imported.get('components', 0)}")
+                            st.write(f"- Strutture: {design_imported.get('structures', 0)}")
+                            st.write(f"- Chiavi CMS: {design_imported.get('cms_keys', 0)}")
 
                         # Aggiungi link per navigare al funnel importato
                         st.page_link(
@@ -272,10 +306,10 @@ with st.sidebar:
     st.info(
         """
     Questa pagina consente di:
-    
+
     - **Esportare** le configurazioni dei funnel in formato JSON
     - **Importare** funnel da file JSON precedentemente esportati
-    
+
     Utilizza l'esportazione per fare backup dei tuoi funnel o per trasferirli tra ambienti diversi.
     """
     )
